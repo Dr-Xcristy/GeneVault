@@ -111,33 +111,37 @@
 ;; @param description: A detailed description of the IP.
 ;; @param metadata-hash: A hash of off-chain documentation (e.g., patent filings).
 (define-public (mint-ip-nft (recipient principal) (name (string-ascii 256)) (description (string-utf8 1024)) (metadata-hash (buff 32)))
-  (let ((token-id (+ (var-get last-token-id) u1))
-        (validated-recipient recipient)
-        (validated-hash metadata-hash))
+  (let ((token-id (+ (var-get last-token-id) u1)))
     ;; Only contract owner can mint
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
 
     ;; Validate inputs
     (asserts! (> (len name) u0) ERR-INVALID-TOKEN-ID)
     (asserts! (> (len description) u0) ERR-INVALID-TOKEN-ID)
-    (asserts! (> (len validated-hash) u0) ERR-INVALID-TOKEN-ID)
+    (asserts! (> (len metadata-hash) u0) ERR-INVALID-TOKEN-ID)
 
-    ;; Mint the NFT with validated recipient
-    (try! (nft-mint? gene-vault-nft token-id validated-recipient))
+    ;; Validate recipient is not contract owner (prevent self-minting issues)
+    (asserts! (not (is-eq recipient CONTRACT-OWNER)) ERR-NOT-AUTHORIZED)
 
-    ;; Store metadata with validated hash
-    (map-set token-metadata token-id {
-      name: name,
-      description: description,
-      metadata-hash: validated-hash,
-      metadata-frozen: false
-    })
+    ;; Mint the NFT - use recipient directly after validation
+    (match (nft-mint? gene-vault-nft token-id recipient)
+      success (begin
+        ;; Store metadata
+        (map-set token-metadata token-id {
+          name: name,
+          description: description,
+          metadata-hash: metadata-hash,
+          metadata-frozen: false
+        })
 
-    ;; Update last token ID
-    (var-set last-token-id token-id)
+        ;; Update last token ID
+        (var-set last-token-id token-id)
 
-    (print {type: "nft-mint", token-id: token-id, recipient: validated-recipient})
-    (ok token-id)
+        (print {type: "nft-mint", token-id: token-id, recipient: recipient})
+        (ok token-id)
+      )
+      error ERR-NOT-AUTHORIZED
+    )
   )
 )
 
